@@ -12,12 +12,13 @@
 from flask import current_app, redirect, request, jsonify, \
     after_this_request, Blueprint
 from flask_login import current_user
+from flask_wtf import csrf
 from werkzeug.datastructures import MultiDict
 from werkzeug.local import LocalProxy
 
 from .confirmable import send_confirmation_instructions, \
     confirm_user, confirm_email_token_status
-from .decorators import login_required, anonymous_user_required
+from .decorators import anonymous_user_required, auth_required
 from .passwordless import send_login_instructions, \
     login_token_status
 from .recoverable import reset_password_token_status, \
@@ -43,11 +44,14 @@ def _render_json(form, include_user=True, include_auth_token=False):
     else:
         code = 200
         response = dict()
-        if include_user:
+        has_user = hasattr(form, 'user') and form.user
+        if include_user and has_user:
             response['user'] = dict(id=str(form.user.id))
-        if include_auth_token:
+        if include_auth_token and has_user:
             token = form.user.get_auth_token()
             response['user']['authentication_token'] = token
+        if _security.json_include_csrf:
+            response['csrf_token'] = csrf.generate_csrf()
 
     return jsonify(dict(meta=dict(code=code), response=response)), code
 
@@ -293,7 +297,7 @@ def reset_password(token):
                                      **_ctx('reset_password'))
 
 
-@login_required
+@auth_required('session', 'token', 'basic')
 def change_password():
     """View function which handles a change password request."""
 
